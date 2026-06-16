@@ -3,68 +3,71 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-// ─── ESC/POS helpers ────────────────────────────────────────────────────────
-// These are raw commands that all thermal printers understand
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-const ESC_INIT        = '\x1B\x40'       // Reset printer
-const ALIGN_CENTER    = '\x1B\x61\x01'   // Center text
-const ALIGN_LEFT      = '\x1B\x61\x00'   // Left align
-const BOLD_ON         = '\x1B\x45\x01'   // Bold on
-const BOLD_OFF        = '\x1B\x45\x00'   // Bold off
-const FEED_AND_CUT    = '\x1D\x56\x41\x00' // Feed paper and cut
+interface SaleItem {
+  qty: number
+  name: string
+  price: number
+}
+
+type StatusType = 'info' | 'success' | 'error' | ''
+
+// ─── ESC/POS helpers ─────────────────────────────────────────────────────────
+
+const ESC_INIT     = '\x1B\x40'
+const ALIGN_CENTER = '\x1B\x61\x01'
+const ALIGN_LEFT   = '\x1B\x61\x00'
+const BOLD_ON      = '\x1B\x45\x01'
+const BOLD_OFF     = '\x1B\x45\x00'
+const FEED_AND_CUT = '\x1D\x56\x41\x00'
 
 // Common BLE service UUIDs for thermal printers
-// These cover most cheap Chinese thermal printers (Xprinter, GOOJPRT, Rongta, etc.)
 const PRINTER_SERVICES = [
-  '000018f0-0000-1000-8000-00805f9b34fb', // most common
-  '49535343-fe7d-4ae5-8fa9-9fafd205e455', // second most common
-  '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART (some printers)
-  'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // another variant
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
 ]
 
-// Build the receipt as a byte array
-function buildReceipt(shopName, items) {
-  const total = items.reduce((sum, i) => sum + i.qty * i.price, 0)
+function buildReceipt(shopName: string, items: SaleItem[]): Uint8Array {
+  const total = items.reduce((sum: number, i: SaleItem) => sum + i.qty * i.price, 0)
   const date = new Date().toLocaleString('fr-DZ')
+  const sep  = '================================\n'
+  const dash = '--------------------------------\n'
 
-  const separator32 = '================================\n'
-  const separator32dash = '--------------------------------\n'
-
-  // Format a line item: "2x Cola              240.00"
-  function lineItem(item) {
-    const left = `${item.qty}x ${item.name}`
+  function lineItem(item: SaleItem): string {
+    const left  = `${item.qty}x ${item.name}`
     const right = (item.qty * item.price).toFixed(2)
-    const spaces = 32 - left.length - right.length
-    return left + ' '.repeat(Math.max(1, spaces)) + right + '\n'
+    const spaces = Math.max(1, 32 - left.length - right.length)
+    return left + ' '.repeat(spaces) + right + '\n'
   }
 
   const receipt = [
     ESC_INIT,
     ALIGN_CENTER,
-    BOLD_ON,
-    shopName + '\n',
-    BOLD_OFF,
+    BOLD_ON,  shopName + '\n', BOLD_OFF,
     'Tel: 0555 123 456\n',
     date + '\n',
-    separator32,
+    sep,
     ALIGN_LEFT,
     ...items.map(lineItem),
-    separator32dash,
-    BOLD_ON,
-    `TOTAL: ${total.toFixed(2)} DZD\n`,
-    BOLD_OFF,
-    separator32,
+    dash,
+    BOLD_ON, `TOTAL: ${total.toFixed(2)} DZD\n`, BOLD_OFF,
+    sep,
     ALIGN_CENTER,
     'Merci! A bientot.\n',
-    '\n\n\n',   // extra feed so paper comes out enough to tear
+    '\n\n\n',
     FEED_AND_CUT,
   ].join('')
 
   return new TextEncoder().encode(receipt)
 }
 
-// Send bytes to printer in 20-byte chunks (BLE MTU limit)
-async function sendToPrinter(characteristic, bytes) {
+async function sendToPrinter(
+  characteristic: BluetoothRemoteGATTCharacteristic,
+  bytes: Uint8Array
+): Promise<void> {
   const CHUNK = 20
   for (let i = 0; i < bytes.length; i += CHUNK) {
     const chunk = bytes.slice(i, i + CHUNK)
@@ -73,36 +76,41 @@ async function sendToPrinter(characteristic, bytes) {
     } else {
       await characteristic.writeValue(chunk)
     }
-    // Small delay between chunks to avoid buffer overflow
     await new Promise((r) => setTimeout(r, 20))
   }
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-// Dummy sale data — replace this with your real cart later
-const DEMO_ITEMS = [
-  { qty: 2, name: 'Cola 33cl',   price: 60  },
-  { qty: 1, name: 'Chips Lay\'s', price: 80  },
-  { qty: 3, name: 'Eau Minérale', price: 25  },
+const DEMO_ITEMS: SaleItem[] = [
+  { qty: 2, name: "Cola 33cl",    price: 60 },
+  { qty: 1, name: "Chips Lay's",  price: 80 },
+  { qty: 3, name: "Eau Minérale", price: 25 },
 ]
 
 export default function PrintTest() {
-  const [connected, setConnected]   = useState(false)
+  const [connected,  setConnected]  = useState(false)
   const [deviceName, setDeviceName] = useState('')
-  const [status, setStatus]         = useState('')
-  const [statusType, setStatusType] = useState('') // 'info' | 'success' | 'error'
-  const [printing, setPrinting]     = useState(false)
+  const [status,     setStatus]     = useState('')
+  const [statusType, setStatusType] = useState<StatusType>('')
+  const [printing,   setPrinting]   = useState(false)
 
-  const charRef = useRef(null)
+  const charRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
 
-  function showStatus(msg, type = 'info') {
+  function showStatus(msg: string, type: StatusType = 'info') {
     setStatus(msg)
     setStatusType(type)
   }
 
   async function connectPrinter() {
-    if (!navigator.bluetooth) {
+    // navigator.bluetooth is not in the default TS lib — cast to any
+    const nav = navigator as Navigator & {
+      bluetooth: {
+        requestDevice: (options: object) => Promise<BluetoothDevice>
+      }
+    }
+
+    if (!nav.bluetooth) {
       showStatus('Web Bluetooth not supported. Use Chrome on Android.', 'error')
       return
     }
@@ -110,54 +118,53 @@ export default function PrintTest() {
     try {
       showStatus('Opening Bluetooth scanner...')
 
-      const device = await navigator.bluetooth.requestDevice({
+      const device = await nav.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: PRINTER_SERVICES,
       })
 
-      showStatus('Connecting to ' + (device.name || 'device') + '...')
+      showStatus('Connecting to ' + (device.name ?? 'device') + '...')
 
-      const server = await device.gatt.connect()
-      let char = null
+      const server = await device.gatt!.connect()
+      let char: BluetoothRemoteGATTCharacteristic | null = null
 
-      // Try each known service UUID until we find a writable characteristic
       for (const uuid of PRINTER_SERVICES) {
         try {
           const service = await server.getPrimaryService(uuid)
           const chars   = await service.getCharacteristics()
           char = chars.find(
-            (c) => c.properties.write || c.properties.writeWithoutResponse
-          )
+            (c: BluetoothRemoteGATTCharacteristic) =>
+              c.properties.write || c.properties.writeWithoutResponse
+          ) ?? null
           if (char) break
         } catch (_) {
-          // This UUID not found on this printer, try the next
+          // UUID not on this printer, try next
         }
       }
 
       if (!char) {
         throw new Error(
-          'Could not find a writable characteristic. ' +
-          'Make sure the printer is in pairing mode and check the model.'
+          'No writable characteristic found. Check printer model.'
         )
       }
 
       charRef.current = char
       setConnected(true)
-      setDeviceName(device.name || 'Printer')
-      showStatus('Connected to ' + (device.name || 'printer'), 'success')
+      setDeviceName(device.name ?? 'Printer')
+      showStatus('Connected to ' + (device.name ?? 'printer'), 'success')
 
-      // Handle disconnection
       device.addEventListener('gattserverdisconnected', () => {
         setConnected(false)
         setDeviceName('')
         charRef.current = null
         showStatus('Printer disconnected', 'error')
       })
-    } catch (err) {
-      if (err.name === 'NotFoundError') {
+    } catch (err: unknown) {
+      const error = err as Error
+      if (error.name === 'NotFoundError') {
         showStatus('No device selected.', 'info')
       } else {
-        showStatus('Error: ' + err.message, 'error')
+        showStatus('Error: ' + error.message, 'error')
       }
     }
   }
@@ -170,14 +177,22 @@ export default function PrintTest() {
       const bytes = buildReceipt('MON MAGASIN', DEMO_ITEMS)
       await sendToPrinter(charRef.current, bytes)
       showStatus('Printed!', 'success')
-    } catch (err) {
-      showStatus('Print error: ' + err.message, 'error')
+    } catch (err: unknown) {
+      const error = err as Error
+      showStatus('Print error: ' + error.message, 'error')
     } finally {
       setPrinting(false)
     }
   }
 
   const total = DEMO_ITEMS.reduce((s, i) => s + i.qty * i.price, 0)
+
+  const statusColors: Record<StatusType, string> = {
+    success: 'bg-green-50 text-green-700',
+    error:   'bg-red-50 text-red-700',
+    info:    'bg-blue-50 text-blue-700',
+    '':      '',
+  }
 
   return (
     <div className="p-4 max-w-sm mx-auto space-y-4">
@@ -198,9 +213,7 @@ export default function PrintTest() {
               const right = (item.qty * item.price).toFixed(2)
               return (
                 <p key={i}>
-                  {left}
-                  {' '.repeat(Math.max(1, 32 - left.length - right.length))}
-                  {right}
+                  {left}{'  '}{right}
                 </p>
               )
             })}
@@ -242,11 +255,7 @@ export default function PrintTest() {
           </div>
 
           {status && (
-            <p className={`text-sm px-3 py-2 rounded-md ${
-              statusType === 'success' ? 'bg-green-50 text-green-700' :
-              statusType === 'error'   ? 'bg-red-50 text-red-700'     :
-              'bg-blue-50 text-blue-700'
-            }`}>
+            <p className={`text-sm px-3 py-2 rounded-md ${statusColors[statusType]}`}>
               {status}
             </p>
           )}

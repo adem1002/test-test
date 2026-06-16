@@ -32,6 +32,7 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-bluetooth": "^0.0.21",
     "@vitejs/plugin-react": "^6",
     "eslint": "^10",
     "eslint-plugin-react-hooks": "^7.1.1",
