@@ -19,6 +19,7 @@
     "@tailwindcss/vite": "^4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "esc-pos-encoder": "^3.0.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "shadcn": "^4.11.0",
@@ -40,6 +41,7 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "typescript": "~6",
     "typescript-eslint": "^8",
-    "vite": "^8"
+    "vite": "^8",
+    "vite-plugin-mkcert": "^2.1.0"
   }
 }
